@@ -17,7 +17,7 @@ if (system.args.length < 5) {
 }
 
 var params = {
-    minutesForUpdate: 120,
+    minutesForUpdate: 360,
     frontendUrl     : 'https://teespring.com',
     apiHost         : '{key}-dsn.algolia.net',
     apiURL          : 'https://{host}/1/indexes/site_wide_search_index_production/query?{queryString}',
@@ -30,7 +30,7 @@ var params = {
         'query'               : '',
         'page'                : '',
         'hitsPerPage'         : 20,
-        'attributesToRetrieve': encodeURIComponent('["name","url","tippingpoint","amount_ordered","primary_pic_url","secondary_pic_url","endcost","enddate"]')
+        'attributesToRetrieve': "name,url,tippingpoint,amount_ordered,primary_pic_url,secondary_pic_url,endcost,enddate,objectID"
     }
 };
 
@@ -109,15 +109,8 @@ casper.then(function () {
         .replace('{queryString}', helpers.createQueryString(params.getParams));
 
     casper.thenOpen(params.apiURL, {
-        method : 'POST',
-        data   : '{"params":"' + helpers.createQueryString(params.postParams) + '"}',
-        headers: {
-            'Content-type': 'application/x-www-form-urlencoded',
-            'Host'        : params.apiHost,
-            'Origin'      : params.frontendUrl,
-            'Referer'     : params.frontendUrl + '/',
-            'User-Agent'  : casperOptions.pageSettings.userAgent
-        }
+        method: 'POST',
+        data  : '{"params":"' + helpers.createQueryString(params.postParams) + '"}'
     });
 });
 
