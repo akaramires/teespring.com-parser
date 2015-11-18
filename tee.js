@@ -5,10 +5,10 @@
  * Time: 2:16 PM
  */
 
-var system = require('system');
-var utils = require('utils');
+var system  = require('system');
+var utils   = require('utils');
+var fs      = require('fs');
 var helpers = require('helpers');
-var casper = require('casper');
 
 if (system.args.length < 5) {
     console.info("One argument must be passed.");
@@ -17,67 +17,106 @@ if (system.args.length < 5) {
 }
 
 var params = {
-    frontendUrl: 'https://teespring.com',
-    apiHost: '{key}-dsn.algolia.net',
-    apiURL: 'https://{host}/1/indexes/site_wide_search_index_production/query?{queryString}',
-    getParams: {
-        'X-Algolia-API-Key': '',
-        'X-Algolia-Application-Id': '',
-        'X-Algolia-TagFilters': '-relaunched'
+    minutesForUpdate: 120,
+    frontendUrl     : 'https://teespring.com',
+    apiHost         : '{key}-dsn.algolia.net',
+    apiURL          : 'https://{host}/1/indexes/site_wide_search_index_production/query?{queryString}',
+    getParams       : {
+        'X-Algolia-API-Key'       : null,
+        'X-Algolia-Application-Id': null,
+        'X-Algolia-TagFilters'    : '-relaunched'
     },
-    postParams: {
-        'query': '',
-        'page': '',
-        'hitsPerPage': 12,
+    postParams      : {
+        'query'               : '',
+        'page'                : '',
+        'hitsPerPage'         : 20,
         'attributesToRetrieve': encodeURIComponent('["name","url","tippingpoint","amount_ordered","primary_pic_url","secondary_pic_url","endcost","enddate"]')
     }
 };
 
-params.postParams['query'] = system.args[4];
-params.postParams['page'] = system.args[5] || 1;
+var keysFile = 'keys.json';
+
+params.postParams.query       = system.args[4];
+params.postParams.page        = system.args[5] || 1;
+params.postParams.hitsPerPage = system.args[6] || params.postParams.hitsPerPage;
 
 var casperOptions = {
     //verbose: true,
     //logLevel: "debug",
     pageSettings: {
-        "userAgent": 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1',
-        "loadImages": false,
-        "loadPlugins": false,
+        "userAgent"        : 'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1',
+        "loadImages"       : false,
+        "loadPlugins"      : false,
         "javascriptEnabled": true
     },
     viewportSize: {
-        width: 1600,
+        width : 1600,
         height: 4000
     }
 };
 
-casper.create(casperOptions);
+var casper = require('casper').create(casperOptions);
 
-casper.start(params.frontendUrl);
+casper.start('127.0.0.1', function () {
+    var requestNewKeys = false;
+    var exists         = fs.exists(keysFile);
+
+    if (exists) {
+        var keys = require('keys.json');
+
+        var keyLastUpdate = Math.floor((Date.now() - keys.apiKey.datetime) / 1000 / 60);
+        var idLastUpdate  = Math.floor((Date.now() - keys.apiId.datetime) / 1000 / 60);
+
+        if (keyLastUpdate > params.minutesForUpdate || idLastUpdate > params.minutesForUpdate) {
+            requestNewKeys = true;
+        }
+    } else {
+        requestNewKeys = true;
+    }
+
+    if (requestNewKeys) {
+        casper.thenOpen(params.frontendUrl, function () {
+            var ENV = this.evaluate(function () {
+                return window.ENV;
+            });
+
+            fs.write(keysFile, JSON.stringify({
+                'apiKey': {
+                    value   : ENV.PUBLICLY_SEARCHABLE_ALGOLIA_READ_KEY,
+                    datetime: Date.now()
+                },
+                'apiId' : {
+                    value   : ENV.ALGOLIA_ID,
+                    datetime: Date.now()
+                }
+            }), 'w');
+        });
+    }
+});
 
 casper.then(function () {
-    var ENV = this.evaluate(function () {
-        return window.ENV;
-    });
+    var keys = require('keys.json');
 
-    params.getParams['X-Algolia-API-Key'] = ENV.PUBLICLY_SEARCHABLE_ALGOLIA_READ_KEY;
-    params.getParams['X-Algolia-Application-Id'] = ENV.ALGOLIA_ID;
+    params.getParams['X-Algolia-API-Key']        = keys.apiKey.value;
+    params.getParams['X-Algolia-Application-Id'] = keys.apiId.value;
+});
 
-    params.apiHost = params.apiHost.replace('{key}', ENV.ALGOLIA_ID.toLowerCase());
+casper.then(function () {
+    params.apiHost = params.apiHost.replace('{key}', params.getParams['X-Algolia-Application-Id'].toLowerCase());
 
     params.apiURL = params.apiURL
         .replace('{host}', params.apiHost)
         .replace('{queryString}', helpers.createQueryString(params.getParams));
 
     casper.thenOpen(params.apiURL, {
-        method: 'POST',
-        data: '{"params":"' + helpers.createQueryString(params.postParams) + '"}',
+        method : 'POST',
+        data   : '{"params":"' + helpers.createQueryString(params.postParams) + '"}',
         headers: {
             'Content-type': 'application/x-www-form-urlencoded',
-            'Host': params.apiHost,
-            'Origin': params.frontendUrl,
-            'Referer': params.frontendUrl + '/',
-            'User-Agent': casperOptions.pageSettings.userAgent
+            'Host'        : params.apiHost,
+            'Origin'      : params.frontendUrl,
+            'Referer'     : params.frontendUrl + '/',
+            'User-Agent'  : casperOptions.pageSettings.userAgent
         }
     });
 });
